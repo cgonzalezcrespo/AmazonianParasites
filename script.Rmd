@@ -1,0 +1,427 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load libraries
+library(lme4)
+library(MuMIn)
+library(emmeans)
+library(scales)  # To use the rescale function for scaling (0-1)
+library(glmmTMB)
+library(nloptr)
+#install.packages("nloptr")
+```
+
+```{r, include=FALSE}
+primnew<-primatesdef2
+primnew <- na.omit(primnew)
+attach(primnew)
+primnew$STRO_P<- as.factor(primnew$STRO_P)
+primnew$MATH_P<- as.factor(primnew$MATH_P)
+primnew$PROS_P<- as.factor(primnew$PROS_P)
+primnew$PHYS_P<- as.factor(primnew$PHYS_P)
+primnew$MOLI_P<- as.factor(primnew$MOLI_P)
+primnew$TRYP_P<- as.factor(primnew$TRYP_P)
+primnew$GRAP_P<- as.factor(primnew$GRAP_P)
+primnew$SPIR_P<- as.factor(primnew$SPIR_P)
+primnew$CAPI_P<- as.factor(primnew$CAPI_P)
+primnew$BERT_P<- as.factor(primnew$BERT_P)
+primnew$A<- as.factor(primnew$A)
+primnew$Host<- as.factor(primnew$Host)
+
+```
+
+
+```{r}
+# Select the variables to scale
+variables_to_scale <- c("PopulationDensity", "Group_size", "Temperature", "RipefruitUpland", "RipefruitSwamps", 
+                        "Rain", "RainDays", "WaterElevation")
+
+# Scale the variables between 0 and 1
+scaled_data <- primnew  # Create a copy of the dataset
+scaled_data[variables_to_scale] <- lapply(scaled_data[variables_to_scale], rescale, to = c(0, 1))
+
+# Calculate the Rain_Composite (assuming equal weights for now)
+scaled_data$Rain_Composite <- rowMeans(scaled_data[, c("Rain", "RainDays", "WaterElevation")], na.rm = TRUE)
+
+# View the first few rows of the scaled data and the calculated Rain Composite
+head(scaled_data)
+primnew<-scaled_data
+
+```
+
+```{r}
+# Define the list of parasite prevalence columns
+parasite_prevalence_vars <- c("STRO_P", "MATH_P", "PROS_P", "PHYS_P", 
+                              "MOLI_P", "TRYP_P", "BERT_P")
+# Define the list of parasite load columns (replace with your actual parasite load variables)
+parasite_load_vars <- c("STRO", "MATH", "PROS", "PHYS", 
+                        "MOLI", "TRYP", "BERT")
+# Define the list of predictors
+predictors <- c("PopulationDensity", "Group_size", "Temperature", 
+                "RipefruitUpland", "RipefruitSwamps", "Rain_Composite")
+ # Subset data for A = "Y"
+  subset_data <- primnew[primnew$A == "Y", ]
+```
+
+
+# Study area and host analyses
+## Prevalence Study area
+```{r}
+# List of parasite prevalence variables
+parasite_prevalence_vars <- c("STRO_P", "MATH_P", "PROS_P", "PHYS_P", 
+                              "MOLI_P", "TRYP_P", "GRAP_P", 
+                              "CAPI_P", "BERT_P")
+
+# Loop through each parasite prevalence variable and fit the GLMMs
+for (parasite in parasite_prevalence_vars) {
+  
+  # Construct the GLMM formula for x = A (region), random = host
+  formula <- as.formula(paste(parasite, "~ A + (1 | Host)"))
+  
+  # Fit the binomial GLMM
+  glmm_prevalence <- glmer(formula, data = primnew, family = binomial, 
+                         control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)),
+                         na.action = "na.fail")
+
+  
+  # Print model summary
+  print(paste("Results for", parasite))
+  print(summary(glmm_prevalence))
+  
+}
+
+```
+
+## Prevalence Host
+```{r}
+
+# List of parasite prevalence variables
+parasite_prevalence_vars2 <- c("STRO_P", "MATH_P", "PROS_P", "PHYS_P", 
+                              "MOLI_P", "TRYP_P", "GRAP_P", 
+                              "CAPI_P", "BERT_P")
+# Loop through each parasite prevalence variable and fit the GLMMs
+for (parasite in parasite_prevalence_vars2) {
+  
+  # Construct the GLMM formula for x = A (region), random = host
+  formula <- as.formula(paste(parasite, "~ Host + (1 | A)"))
+  
+  # Fit the binomial GLMM
+  glmm_prevalence <- glmer(formula, data = primnew, family = binomial, 
+                         control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)),
+                         na.action = "na.fail")
+  posth_prev<-emmeans(glmm_prevalence, "Host", type = "response")
+  # Print model summary
+  print(paste("Results for", parasite))
+ print(summary(glmm_prevalence))
+   print(contrast(posth_prev, "pairwise", adjust = "none")) 
+  
+
+ 
+
+}
+
+```
+
+
+## Parasite load - Study area
+```{r}
+# List of parasite load variables
+parasite_load_vars <- c("STRO", "MATH", "PROS", "PHYS", 
+                        "GRAP",  "CAPI", "TRYP")
+
+# Loop through each parasite load variable and fit the GLMMs
+for (parasite in parasite_load_vars) {
+  
+  # Only include data where parasite load is greater than 1
+  # subset_data <- primnew[primnew[[parasite]] >= 1, ]
+
+  
+  # Construct the GLMM formula for x = A (region), random = host
+  formula <- as.formula(paste(parasite, "~ A + (1 | Host)"))
+  
+  # Fit the Poisson GLMM
+  glmm_load <- glmmTMB(formula, data = primnew, family = nbinom2(link = "log"), ziformula = ~ 1, na.action = "na.fail")
+  
+  # Print model summary
+  print(paste("Results for", parasite))
+  print(summary(glmm_load))
+ 
+
+}
+
+```
+
+
+## Parasite load Host
+```{r}
+
+# List of parasite load variables
+parasite_load_vars <- c("STRO", "MATH", "PROS", "PHYS", 
+                        "MOLI", "TRYP", "GRAP", 
+                        "CAPI", "BERT")
+
+# Loop through each parasite load variable and fit the GLMMs
+for (parasite in parasite_load_vars) {
+  
+  # Only include data where parasite load is greater than 1
+  # subset_data <- primnew[primnew[[parasite]] >= 1, ]
+
+  
+  # Construct the GLMM formula for x = A (region), random = host
+  formula <- as.formula(paste(parasite, "~ Host + (1 | A)"))
+  
+  # Fit the Poisson GLMM
+  glmmTMB_load <- glmmTMB(formula, data = primnew, family = nbinom2(link = "log"), ziformula = ~ 1, na.action = "na.fail")
+    posth_load<-emmeans(glmmTMB_load, "Host", type = "response")
+  # Print model summary
+  print(paste("Results for", parasite))
+  print(summary(glmmTMB_load))
+ print(contrast(posth_load, "pairwise", adjust = "none")) 
+
+  
+
+}
+
+```
+
+# Biological and environmental variables analyses - Only Yavari area
+```{r}
+# Function to calculate odds ratios or IRRs and their 95% confidence intervals based on conditional averaging
+calculate_conditional_or_irr <- function(model_avg) {
+  # Extract conditional model-averaged estimates
+  estimates <- summary(model_avg)$coefmat.subset
+  
+  # Exponentiate the coefficients to get odds ratios (for binomial) or IRRs (for Poisson)
+  OR_IRR <- exp(estimates[, 1])
+  
+  # Calculate 95% confidence intervals for the odds ratios or IRRs
+  CI_lower <- exp(estimates[, 1] - 1.96 * estimates[, 2])
+  CI_upper <- exp(estimates[, 1] + 1.96 * estimates[, 2])
+  
+  # Create a data frame with the results
+  results <- data.frame(
+    Predictor = rownames(estimates),
+    Estimate = estimates[, 1],
+    OR_IRR = OR_IRR,
+    CI_Lower = CI_lower,
+    CI_Upper = CI_upper
+  )
+  
+  return(results)
+}
+
+
+```
+
+
+
+
+
+## Prevalence
+### All predictor + interactions
+
+```{r}
+# Initialize an empty list to store averaged models
+averaged_models <- list()
+
+# Loop through each parasite prevalence and fit multiple GLMMs
+for (parasite in parasite_prevalence_vars) {
+  
+  # Initialize a list to store models for each parasite
+  models <- list()
+  
+  # Generate all combinations of the predictors (2 to 6 variables)
+  # Loop through combinations of predictors
+for (k in 2:length(predictors)) {
+  
+  # Generate all combinations of k predictors
+  combs <- combn(predictors, k)
+  
+  # Loop through each combination of predictors
+  for (i in 1:ncol(combs)) {
+    
+    # Create a formula without interactions
+    formula <- as.formula(paste(parasite, "~", paste(combs[, i], collapse = " + "), "+ (1 | Host)"))
+    
+    # Fit the GLMM model with adjusted control parameters and error handling
+    model <- tryCatch({
+      glmer(formula, data = subset_data, family = binomial(link = "logit"),
+            control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+    }, error = function(e) NA)  # Capture errors
+    
+    # Store the model if it fits successfully
+    if (!is.na(model)) {
+      models[[length(models) + 1]] <- model
+    }
+    
+    # Now create interaction terms only for pairs of predictors
+    if (k >= 2) {
+      pairwise_combinations <- combn(combs[, i], 2)
+      for (j in 1:ncol(pairwise_combinations)) {
+        
+        # Create a formula with interaction terms for the pair of predictors
+        interaction_terms <- paste(pairwise_combinations[, j], collapse = " * ")  # Only two predictors
+        formula_with_interaction <- as.formula(paste(parasite, "~", interaction_terms, "+ (1 | Host)"))
+        
+        # Fit the interaction model with error handling and control settings
+        model_with_interaction <- tryCatch({
+          glmer(formula_with_interaction, data = subset_data, family = binomial(link = "logit"),
+                control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+        }, error = function(e) NA)  # Capture errors
+        
+        # Store the interaction model if it fits successfully
+        if (!is.na(model_with_interaction)) {
+          models[[length(models) + 1]] <- model_with_interaction
+        }
+      }
+    }
+  }
+}
+# Remove duplicate models by comparing their formula
+models <- models[!duplicated(sapply(models, formula))]
+
+  # Perform model comparison using AICc
+  model_selection <- model.sel(models, rank = "AICc")
+  
+  # Print model selection table
+  print(paste("Model selection for:", parasite))
+  print(model_selection)
+  
+  # Perform model averaging for models with ΔAIC < 2
+  averaged_model <- model.avg(models, subset = delta < 2)
+  
+  # Print model-averaged estimates and importance values
+  print(paste("Model averaging for:", parasite))
+  print(summary(averaged_model))
+  
+# Calculate odds ratios and their confidence intervals
+    or_results <- calculate_conditional_or_irr(averaged_model)
+  
+  # Print the odds ratio results
+  print(paste("Odds Ratios and CIs for:", parasite))
+  print(or_results)
+  
+  # Store the averaged model and OR results for each parasite
+  averaged_models[[parasite]] <- list(model = averaged_model, or_results = or_results)
+}
+
+# Results: After running the loop, you will have averaged models stored in `averaged_models` for each parasite
+print(averaged_models)
+
+```
+
+
+
+## Parasite load- Poisson
+```{r}
+
+# Define the list of parasite load columns (replace with your actual parasite load variables)
+parasite_load_vars <- c("STRO", "MATH", "PROS", "PHYS", 
+                        "MOLI", "TRYP", "BERT")
+
+# Define the list of predictors
+predictors <- c("PopulationDensity", "Group_size", "Temperature", 
+                "RipefruitUpland", "RipefruitSwamps", "Rain_Composite")
+
+# Initialize an empty list to store averaged models
+averaged_models <- list()
+
+# Loop through each parasite load and fit multiple GLMMs
+for (parasite in parasite_load_vars) {
+  
+  # Subset data for A = "Y" (adjust this based on your data)
+  subset_data <- primnew[primnew$A == "Y", ]
+  
+  # Initialize a list to store models for each parasite load
+  models <- list()
+  
+  # Generate all combinations of the predictors (2 to 6 variables)
+  # Loop through combinations of predictors
+  for (k in 2:length(predictors)) {
+    
+    # Generate all combinations of k predictors
+    combs <- combn(predictors, k)
+    
+    # Loop through each combination of predictors
+    for (i in 1:ncol(combs)) {
+      
+      # Create a formula without interactions
+      formula <- as.formula(paste(parasite, "~", paste(combs[, i], collapse = " + "), "+ (1 | Host)"))
+      
+      # Fit the Poisson GLMM model with adjusted control parameters and error handling
+      model <- tryCatch({
+        glmmTMB(formula, data = subset_data, ziformula = ~ 1, family = poisson(link = "log"),
+              control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+        
+        
+      }, error = function(e) NA)  # Capture errors
+      
+      # Store the model if it fits successfully
+      if (!is.na(model)) {
+        models[[length(models) + 1]] <- model
+      }
+      
+      # Now create interaction terms only for pairs of predictors
+      if (k >= 2) {
+        pairwise_combinations <- combn(combs[, i], 2)
+        for (j in 1:ncol(pairwise_combinations)) {
+          
+          # Create a formula with interaction terms for the pair of predictors
+          interaction_terms <- paste(pairwise_combinations[, j], collapse = " * ")  # Only two predictors
+          formula_with_interaction <- as.formula(paste(parasite, "~", interaction_terms, "+ (1 | Host)"))
+          
+          # Fit the interaction model with error handling and control settings
+          model_with_interaction <- tryCatch({
+            glmer(formula_with_interaction, data = subset_data, family = poisson(link = "log"),
+                  control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000)))
+          }, error = function(e) NA)  # Capture errors
+          
+          # Store the interaction model if it fits successfully
+          if (!is.na(model_with_interaction)) {
+            models[[length(models) + 1]] <- model_with_interaction
+          }
+        }
+      }
+    }
+  }
+  
+  # Remove duplicate models by comparing their formula
+  models <- models[!duplicated(sapply(models, formula))]
+
+  # Perform model comparison using AICc
+  model_selection <- model.sel(models, rank = "AICc")
+  
+  # Print model selection table
+  #print(paste("Model selection for:", parasite))
+  #print(model_selection)
+  
+  # Perform model averaging for models with ΔAIC < 2
+  averaged_model <- model.avg(models, subset = delta < 2)
+  
+  # Print model-averaged estimates and importance values
+  print(paste("Model averaging for:", parasite))
+  print(summary(averaged_model))
+  
+# Calculate IRRs and their confidence intervals
+  irr_results <- calculate_conditional_or_irr(averaged_model)
+  
+  # Print the IRR results
+  print(paste("Incidence Rate Ratios and CIs for:", parasite))
+  print(irr_results)
+  
+  # Store the averaged model and IRR results for each parasite
+  averaged_models[[parasite]] <- list(model = averaged_model, irr_results = irr_results)
+}
+
+# Results: After running the loop, you will have averaged models stored in `averaged_models` for each parasite
+print(averaged_models)
+
+```
+
+
